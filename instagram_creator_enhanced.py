@@ -64,6 +64,8 @@ class ProxyManager:
         self.current_index = 0
         self.working_proxies = []
         self.failed_proxies = []
+        self.max_retries = 3  # Limit retries to prevent infinite loops
+        self.retry_count = 0
         
         if proxy_file_path:
             self.load_proxies(proxy_file_path)
@@ -93,25 +95,29 @@ class ProxyManager:
             return False
     
     def parse_proxy(self, proxy_string):
-        """Parse proxy string and return proxy dict"""
+        """Parse proxy string and return proxy dict - supports residential proxy formats"""
         try:
-            # Remove protocol if present
-            original_string = proxy_string
-            proxy_string = proxy_string.replace('http://', '').replace('https://', '').replace('socks4://', '').replace('socks5://', '')
+            original_string = proxy_string.strip()
             
             # Determine proxy type from original string
             proxy_type = 'http'
-            if 'socks4://' in original_string:
+            if original_string.startswith('socks4://'):
                 proxy_type = 'socks4'
-            elif 'socks5://' in original_string:
+                proxy_string = original_string.replace('socks4://', '')
+            elif original_string.startswith('socks5://'):
                 proxy_type = 'socks5'
-            elif 'https://' in original_string:
+                proxy_string = original_string.replace('socks5://', '')
+            elif original_string.startswith('https://'):
                 proxy_type = 'https'
+                proxy_string = original_string.replace('https://', '')
+            elif original_string.startswith('http://'):
+                proxy_type = 'http'
+                proxy_string = original_string.replace('http://', '')
             
             # Parse different formats
             if '@' in proxy_string:
                 # Format: username:password@ip:port
-                auth_part, server_part = proxy_string.split('@')
+                auth_part, server_part = proxy_string.split('@', 1)
                 if ':' in auth_part:
                     username, password = auth_part.split(':', 1)
                 else:
@@ -120,31 +126,41 @@ class ProxyManager:
                 if ':' in server_part:
                     ip, port = server_part.rsplit(':', 1)
                 else:
+                    print(f"{Colors.RED}[!] Invalid proxy format (missing port): {original_string}{Colors.RESET}")
                     return None
             else:
                 # Format: ip:port or ip:port:username:password
                 parts = proxy_string.split(':')
                 if len(parts) == 2:
-                    # ip:port
+                    # ip:port (no auth)
                     ip, port = parts
                     username, password = '', ''
                 elif len(parts) == 4:
                     # ip:port:username:password
                     ip, port, username, password = parts
                 else:
+                    print(f"{Colors.RED}[!] Invalid proxy format: {original_string}{Colors.RESET}")
                     return None
+            
+            # Validate port is numeric
+            try:
+                port = int(port)
+            except ValueError:
+                print(f"{Colors.RED}[!] Invalid port number: {port} in {original_string}{Colors.RESET}")
+                return None
             
             return {
                 'type': proxy_type,
-                'ip': ip,
-                'port': int(port),
-                'username': username,
-                'password': password,
-                'string': proxy_string
+                'ip': ip.strip(),
+                'port': port,
+                'username': username.strip(),
+                'password': password.strip(),
+                'string': original_string,
+                'failed_count': 0
             }
             
         except Exception as e:
-            logger.error(f"Error parsing proxy {proxy_string}: {e}")
+            print(f"{Colors.RED}[!] Error parsing proxy {proxy_string}: {e}{Colors.RESET}")
             return None
     
     def get_proxy_dict(self, proxy):
@@ -169,45 +185,79 @@ class ProxyManager:
                 'https': proxy_url
             }
     
-    def test_proxy(self, proxy, timeout=15):
-        """Test if proxy is working"""
+    def test_proxy(self, proxy, timeout=20):
+        """Test if proxy is working with multiple test URLs"""
         try:
             proxy_dict = self.get_proxy_dict(proxy)
             if not proxy_dict:
                 return False
             
-            response = requests.get(
+            # Test URLs - use multiple to increase reliability
+            test_urls = [
                 'http://httpbin.org/ip',
-                proxies=proxy_dict,
-                timeout=timeout,
-                verify=False
-            )
+                'http://icanhazip.com',
+                'http://ipinfo.io/ip'
+            ]
             
-            if response.status_code == 200:
-                ip_info = response.json()
-                print(f"{Colors.GREEN}[+] Proxy working: {proxy['ip']}:{proxy['port']} -> {ip_info.get('origin', 'Unknown')}{Colors.RESET}")
-                return True
-            else:
-                return False
+            for test_url in test_urls:
+                try:
+                    response = requests.get(
+                        test_url,
+                        proxies=proxy_dict,
+                        timeout=timeout,
+                        verify=False,
+                        headers={'User-Agent': generate_realistic_user_agent()}
+                    )
+                    
+                    if response.status_code == 200:
+                        # Try to get IP info
+                        try:
+                            if 'httpbin' in test_url:
+                                ip_info = response.json()
+                                current_ip = ip_info.get('origin', 'Unknown')
+                            else:
+                                current_ip = response.text.strip()
+                            
+                            print(f"{Colors.GREEN}[+] Proxy working: {proxy['ip']}:{proxy['port']} -> {current_ip[:50]}{Colors.RESET}")
+                            return True
+                        except:
+                            print(f"{Colors.GREEN}[+] Proxy working: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
+                            return True
+                            
+                except requests.exceptions.RequestException:
+                    continue
+            
+            return False
                 
         except Exception as e:
             logger.debug(f"Proxy test failed for {proxy['ip']}:{proxy['port']}: {e}")
             return False
     
     def get_next_proxy(self):
-        """Get next working proxy"""
+        """Get next working proxy with improved retry logic"""
         if not self.proxies:
+            return None
+        
+        # Reset retry count if we've gone through all proxies
+        if self.retry_count >= self.max_retries:
+            print(f"{Colors.RED}[!] Maximum proxy retries reached. No working proxies found.{Colors.RESET}")
             return None
         
         # Try to find a working proxy
         attempts = 0
-        while attempts < len(self.proxies):
+        max_attempts = len(self.proxies) * 2  # Limit attempts to prevent infinite loops
+        
+        while attempts < max_attempts:
             proxy = self.proxies[self.current_index]
             self.current_index = (self.current_index + 1) % len(self.proxies)
+            attempts += 1
+            
+            # Skip proxies that have failed too many times
+            if proxy.get('failed_count', 0) >= 3:
+                continue
             
             # Check if proxy is in failed list
             if proxy in self.failed_proxies:
-                attempts += 1
                 continue
             
             # Test proxy if not in working list
@@ -215,21 +265,30 @@ class ProxyManager:
                 print(f"{Colors.YELLOW}[*] Testing proxy: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
                 if self.test_proxy(proxy):
                     self.working_proxies.append(proxy)
+                    proxy['failed_count'] = 0
                     return proxy
                 else:
                     self.failed_proxies.append(proxy)
+                    proxy['failed_count'] = proxy.get('failed_count', 0) + 1
                     print(f"{Colors.RED}[!] Proxy failed: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
-                    attempts += 1
                     continue
             else:
                 return proxy
         
-        # If no working proxies found, try failed ones again (maybe they recovered)
-        if self.failed_proxies:
-            print(f"{Colors.YELLOW}[*] Retrying failed proxies...{Colors.RESET}")
-            self.failed_proxies = []
-            return self.get_next_proxy()
+        # If no working proxies found, increment retry count and try failed ones once more
+        if self.failed_proxies and self.retry_count < self.max_retries:
+            self.retry_count += 1
+            print(f"{Colors.YELLOW}[*] Retry attempt {self.retry_count}/{self.max_retries} - Testing failed proxies...{Colors.RESET}")
+            
+            # Reset failed proxies for one more try
+            for proxy in self.failed_proxies[:]:
+                if proxy.get('failed_count', 0) < 2:  # Only retry proxies that haven't failed too much
+                    self.failed_proxies.remove(proxy)
+            
+            if self.failed_proxies:
+                return self.get_next_proxy()
         
+        print(f"{Colors.RED}[!] No working proxies available. Continuing without proxy...{Colors.RESET}")
         return None
 
 def generate_random_string(length):
@@ -447,8 +506,8 @@ def create_session_with_proxy(proxy_manager):
     
     # Configure retry strategy
     retry_strategy = Retry(
-        total=5,
-        backoff_factor=2,
+        total=3,
+        backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -463,6 +522,25 @@ def create_session_with_proxy(proxy_manager):
             if proxy_dict:
                 session.proxies.update(proxy_dict)
                 print(f"{Colors.CYAN}[*] Using proxy: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
+                
+                # Add authentication headers if needed
+                if proxy['username'] and proxy['password']:
+                    print(f"{Colors.CYAN}[*] Proxy authentication: {proxy['username']}:{'*' * len(proxy['password'])}{Colors.RESET}")
+                
+                # Test the proxy with the session
+                try:
+                    test_response = session.get('http://httpbin.org/ip', timeout=15, verify=False)
+                    if test_response.status_code == 200:
+                        try:
+                            ip_info = test_response.json()
+                            current_ip = ip_info.get('origin', 'Unknown')
+                            print(f"{Colors.GREEN}[+] Session proxy verified: {current_ip}{Colors.RESET}")
+                        except:
+                            print(f"{Colors.GREEN}[+] Session proxy verified{Colors.RESET}")
+                    else:
+                        print(f"{Colors.YELLOW}[*] Proxy verification failed, but continuing...{Colors.RESET}")
+                except Exception as e:
+                    print(f"{Colors.YELLOW}[*] Proxy verification error: {str(e)[:50]}...{Colors.RESET}")
             else:
                 print(f"{Colors.YELLOW}[*] No working proxy available, using direct connection{Colors.RESET}")
         else:
@@ -977,6 +1055,33 @@ class InstagramAccountCreator:
             self.fail_count += 1
             return False
 
+def display_proxy_formats():
+    """Display supported proxy formats"""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}📋 SUPPORTED PROXY FORMATS:{Colors.RESET}")
+    print(f"{Colors.YELLOW}HTTP/HTTPS Proxies:{Colors.RESET}")
+    print(f"  • ip:port")
+    print(f"  • ip:port:username:password")
+    print(f"  • username:password@ip:port")
+    print(f"  • http://ip:port")
+    print(f"  • https://username:password@ip:port")
+    
+    print(f"\n{Colors.YELLOW}SOCKS Proxies:{Colors.RESET}")
+    print(f"  • socks4://ip:port")
+    print(f"  • socks5://ip:port")
+    print(f"  • socks4://username:password@ip:port")
+    print(f"  • socks5://username:password@ip:port")
+    
+    print(f"\n{Colors.YELLOW}Residential Proxy Examples:{Colors.RESET}")
+    print(f"  • b006765d7dc8c60a.iuy.us.ip2world.vip:6001:username:password")
+    print(f"  • username:password@residential.proxy.com:8000")
+    print(f"  • http://user:pass@premium.proxy.net:3128")
+    
+    print(f"\n{Colors.GREEN}💡 Tips:{Colors.RESET}")
+    print(f"  • One proxy per line")
+    print(f"  • Lines starting with # are ignored (comments)")
+    print(f"  • Make sure username/password are correct for residential proxies")
+    print(f"  • Test your proxies first with a simple tool")
+
 def get_user_input():
     try:
         print(f"\n{Colors.YELLOW}{Colors.BOLD}How many Instagram accounts do you want to create?{Colors.RESET}")
@@ -996,17 +1101,42 @@ def get_user_input():
         proxy_manager = None
         if use_proxy:
             while True:
-                proxy_file = input(f"{Colors.CYAN}Enter proxy file path (or press Enter to skip): {Colors.RESET}").strip()
-                if not proxy_file:
+                proxy_file = input(f"{Colors.CYAN}Enter proxy file path (or 'help' for formats, Enter to skip): {Colors.RESET}").strip()
+                
+                if proxy_file.lower() == 'help':
+                    display_proxy_formats()
+                    continue
+                elif not proxy_file:
                     print(f"{Colors.YELLOW}[*] Skipping proxy usage{Colors.RESET}")
                     break
                 
                 proxy_manager = ProxyManager(proxy_file)
                 if proxy_manager.proxies:
                     print(f"{Colors.GREEN}[+] Proxy manager initialized with {len(proxy_manager.proxies)} proxies{Colors.RESET}")
-                    break
+                    
+                    # Test a few proxies to make sure they work
+                    print(f"{Colors.YELLOW}[*] Testing first few proxies...{Colors.RESET}")
+                    working_count = 0
+                    for i, proxy in enumerate(proxy_manager.proxies[:3]):  # Test first 3
+                        if proxy_manager.test_proxy(proxy):
+                            working_count += 1
+                    
+                    if working_count > 0:
+                        print(f"{Colors.GREEN}[+] {working_count}/3 test proxies are working{Colors.RESET}")
+                        break
+                    else:
+                        print(f"{Colors.RED}[!] No test proxies are working. Please check your proxy format and credentials.{Colors.RESET}")
+                        display_proxy_formats()
+                        retry = input(f"{Colors.CYAN}Try again? (Y/n): {Colors.RESET}").lower()
+                        if retry == 'n' or retry == 'no':
+                            proxy_manager = None
+                            break
                 else:
-                    print(f"{Colors.RED}[!] Failed to load proxies. Try again or press Enter to skip.{Colors.RESET}")
+                    print(f"{Colors.RED}[!] Failed to load proxies. Please check the file path and format.{Colors.RESET}")
+                    display_proxy_formats()
+                    retry = input(f"{Colors.CYAN}Try again? (Y/n): {Colors.RESET}").lower()
+                    if retry == 'n' or retry == 'no':
+                        break
 
         print(f"\n{Colors.YELLOW}{Colors.BOLD}Delay between account creations (seconds):{Colors.RESET}")
         while True:
