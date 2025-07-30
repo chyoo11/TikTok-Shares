@@ -13,6 +13,12 @@ from datetime import datetime
 from tqdm import tqdm
 from io import BytesIO
 from PIL import Image
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Disable SSL warnings for proxy connections
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,10 +53,183 @@ def display_banner():
 ╠══════════════════════════════════════════════╣
 ║  {Colors.GREEN}➤ Author   : {Colors.WHITE}EK6Q{Colors.CYAN}                     ║
 ║  {Colors.GREEN}➤ Tool     : {Colors.WHITE}Instagram Creator + Bio + PFP{Colors.CYAN}   ║
-║  {Colors.GREEN}➤ Version  : {Colors.WHITE}3.1{Colors.CYAN}                         ║
+║  {Colors.GREEN}➤ Version  : {Colors.WHITE}4.0 - Proxy Edition{Colors.CYAN}           ║
 ╚══════════════════════════════════════════════╝{Colors.RESET}
 """
     print(banner)
+
+class ProxyManager:
+    def __init__(self, proxy_file_path=None):
+        self.proxies = []
+        self.current_index = 0
+        self.working_proxies = []
+        self.failed_proxies = []
+        
+        if proxy_file_path:
+            self.load_proxies(proxy_file_path)
+    
+    def load_proxies(self, file_path):
+        """Load proxies from file"""
+        try:
+            if not os.path.exists(file_path):
+                print(f"{Colors.RED}[!] Proxy file not found: {file_path}{Colors.RESET}")
+                return False
+                
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    proxy = self.parse_proxy(line)
+                    if proxy:
+                        self.proxies.append(proxy)
+            
+            print(f"{Colors.GREEN}[+] Loaded {len(self.proxies)} proxies from file{Colors.RESET}")
+            return len(self.proxies) > 0
+            
+        except Exception as e:
+            print(f"{Colors.RED}[!] Error loading proxies: {e}{Colors.RESET}")
+            return False
+    
+    def parse_proxy(self, proxy_string):
+        """Parse proxy string and return proxy dict"""
+        try:
+            # Remove protocol if present
+            proxy_string = proxy_string.replace('http://', '').replace('https://', '').replace('socks4://', '').replace('socks5://', '')
+            
+            # Determine proxy type from original string
+            proxy_type = 'http'
+            if 'socks4://' in proxy_string:
+                proxy_type = 'socks4'
+            elif 'socks5://' in proxy_string:
+                proxy_type = 'socks5'
+            elif 'https://' in proxy_string:
+                proxy_type = 'https'
+            
+            # Parse different formats
+            if '@' in proxy_string:
+                # Format: username:password@ip:port
+                auth_part, server_part = proxy_string.split('@')
+                if ':' in auth_part:
+                    username, password = auth_part.split(':', 1)
+                else:
+                    username, password = auth_part, ''
+                
+                if ':' in server_part:
+                    ip, port = server_part.rsplit(':', 1)
+                else:
+                    return None
+            else:
+                # Format: ip:port or ip:port:username:password
+                parts = proxy_string.split(':')
+                if len(parts) == 2:
+                    # ip:port
+                    ip, port = parts
+                    username, password = '', ''
+                elif len(parts) == 4:
+                    # ip:port:username:password
+                    ip, port, username, password = parts
+                else:
+                    return None
+            
+            return {
+                'type': proxy_type,
+                'ip': ip,
+                'port': int(port),
+                'username': username,
+                'password': password,
+                'string': proxy_string
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing proxy {proxy_string}: {e}")
+            return None
+    
+    def get_proxy_dict(self, proxy):
+        """Convert proxy info to requests proxy dict"""
+        if not proxy:
+            return None
+            
+        auth_string = ""
+        if proxy['username'] and proxy['password']:
+            auth_string = f"{proxy['username']}:{proxy['password']}@"
+        
+        if proxy['type'] in ['socks4', 'socks5']:
+            proxy_url = f"{proxy['type']}://{auth_string}{proxy['ip']}:{proxy['port']}"
+            return {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+        else:
+            proxy_url = f"http://{auth_string}{proxy['ip']}:{proxy['port']}"
+            return {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+    
+    def test_proxy(self, proxy, timeout=10):
+        """Test if proxy is working"""
+        try:
+            proxy_dict = self.get_proxy_dict(proxy)
+            if not proxy_dict:
+                return False
+            
+            response = requests.get(
+                'http://httpbin.org/ip',
+                proxies=proxy_dict,
+                timeout=timeout,
+                verify=False
+            )
+            
+            if response.status_code == 200:
+                ip_info = response.json()
+                print(f"{Colors.GREEN}[+] Proxy working: {proxy['ip']}:{proxy['port']} -> {ip_info.get('origin', 'Unknown')}{Colors.RESET}")
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            logger.debug(f"Proxy test failed for {proxy['ip']}:{proxy['port']}: {e}")
+            return False
+    
+    def get_next_proxy(self):
+        """Get next working proxy"""
+        if not self.proxies:
+            return None
+        
+        # Try to find a working proxy
+        attempts = 0
+        while attempts < len(self.proxies):
+            proxy = self.proxies[self.current_index]
+            self.current_index = (self.current_index + 1) % len(self.proxies)
+            
+            # Check if proxy is in failed list
+            if proxy in self.failed_proxies:
+                attempts += 1
+                continue
+            
+            # Test proxy if not in working list
+            if proxy not in self.working_proxies:
+                print(f"{Colors.YELLOW}[*] Testing proxy: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
+                if self.test_proxy(proxy):
+                    self.working_proxies.append(proxy)
+                    return proxy
+                else:
+                    self.failed_proxies.append(proxy)
+                    print(f"{Colors.RED}[!] Proxy failed: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
+                    attempts += 1
+                    continue
+            else:
+                return proxy
+        
+        # If no working proxies found, try failed ones again (maybe they recovered)
+        if self.failed_proxies:
+            print(f"{Colors.YELLOW}[*] Retrying failed proxies...{Colors.RESET}")
+            self.failed_proxies = []
+            return self.get_next_proxy()
+        
+        return None
 
 def generate_random_string(length):
     return ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(length))
@@ -215,11 +394,44 @@ def get_csrf_token(session):
         logger.error(f"Error getting CSRF token: {e}")
         return None
 
+def create_session_with_proxy(proxy_manager):
+    """Create a requests session with proxy configuration"""
+    session = requests.Session()
+    
+    # Configure retry strategy
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    # Set proxy if available
+    if proxy_manager:
+        proxy = proxy_manager.get_next_proxy()
+        if proxy:
+            proxy_dict = proxy_manager.get_proxy_dict(proxy)
+            if proxy_dict:
+                session.proxies.update(proxy_dict)
+                print(f"{Colors.CYAN}[*] Using proxy: {proxy['ip']}:{proxy['port']}{Colors.RESET}")
+            else:
+                print(f"{Colors.YELLOW}[*] No working proxy available, using direct connection{Colors.RESET}")
+        else:
+            print(f"{Colors.YELLOW}[*] No proxy available, using direct connection{Colors.RESET}")
+    
+    # Disable SSL verification for proxy connections
+    session.verify = False
+    
+    return session
+
 class InstagramAccountCreator:
-    def __init__(self, save_to_file=True):
+    def __init__(self, save_to_file=True, proxy_manager=None):
         self.save_to_file = save_to_file
         self.success_count = 0
         self.fail_count = 0
+        self.proxy_manager = proxy_manager
 
     def upload_profile_picture(self, session, session_id, user_id, device_id, uuid_val):
         """Upload profile picture after account creation"""
@@ -428,8 +640,8 @@ class InstagramAccountCreator:
         st4_user_agent = generate_web_user_agent()
         st4_time = str(time.time()).split('.')[1]
 
-        # Create a persistent session
-        st4_session = requests.Session()
+        # Create a session with proxy
+        st4_session = create_session_with_proxy(self.proxy_manager)
         
         # Set initial cookies and headers
         st4_session.headers.update({
@@ -720,6 +932,25 @@ def get_user_input():
             except ValueError:
                 print(f"{Colors.RED}Please enter a valid number.{Colors.RESET}")
 
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}Do you want to use proxies?{Colors.RESET}")
+        use_proxy = input(f"{Colors.CYAN}Use proxies? (Y/n): {Colors.RESET}").lower()
+        use_proxy = use_proxy != 'n' and use_proxy != 'no'
+        
+        proxy_manager = None
+        if use_proxy:
+            while True:
+                proxy_file = input(f"{Colors.CYAN}Enter proxy file path (or press Enter to skip): {Colors.RESET}").strip()
+                if not proxy_file:
+                    print(f"{Colors.YELLOW}[*] Skipping proxy usage{Colors.RESET}")
+                    break
+                
+                proxy_manager = ProxyManager(proxy_file)
+                if proxy_manager.proxies:
+                    print(f"{Colors.GREEN}[+] Proxy manager initialized with {len(proxy_manager.proxies)} proxies{Colors.RESET}")
+                    break
+                else:
+                    print(f"{Colors.RED}[!] Failed to load proxies. Try again or press Enter to skip.{Colors.RESET}")
+
         print(f"\n{Colors.YELLOW}{Colors.BOLD}Delay between account creations (seconds):{Colors.RESET}")
         while True:
             try:
@@ -738,7 +969,7 @@ def get_user_input():
                 break
             print(f"{Colors.RED}Please enter Y or N.{Colors.RESET}")
 
-        return count, delay, save_to_file
+        return count, delay, save_to_file, proxy_manager
     except KeyboardInterrupt:
         print(f"\n{Colors.RED}Operation cancelled by user.{Colors.RESET}")
         exit(0)
@@ -748,16 +979,19 @@ def main():
         clear_screen()
         display_banner()
 
-        count, delay, save_to_file = get_user_input()
+        count, delay, save_to_file, proxy_manager = get_user_input()
 
         print("\n" + "=" * 70)
-        print(f"{Colors.GREEN}Starting Enhanced Instagram Account Creator v3.1{Colors.RESET}")
+        print(f"{Colors.GREEN}Starting Enhanced Instagram Account Creator v4.0{Colors.RESET}")
         print(f"{Colors.CYAN}• Creating {Colors.WHITE}{count}{Colors.CYAN} account(s) with bio and profile picture{Colors.RESET}")
         print(f"{Colors.CYAN}• Delay between accounts: {Colors.WHITE}{delay}{Colors.CYAN} seconds{Colors.RESET}")
         print(f"{Colors.CYAN}• Save to file: {Colors.WHITE}{'Yes' if save_to_file else 'No'}{Colors.RESET}")
+        print(f"{Colors.CYAN}• Using proxies: {Colors.WHITE}{'Yes' if proxy_manager else 'No'}{Colors.RESET}")
+        if proxy_manager:
+            print(f"{Colors.CYAN}• Total proxies loaded: {Colors.WHITE}{len(proxy_manager.proxies)}{Colors.RESET}")
         print("=" * 70)
 
-        creator = InstagramAccountCreator(save_to_file=save_to_file)
+        creator = InstagramAccountCreator(save_to_file=save_to_file, proxy_manager=proxy_manager)
 
         for i in range(count):
             print(f"\n{Colors.CYAN}{Colors.BOLD}[{i+1}/{count}] Creating Instagram account with full profile...{Colors.RESET}\n")
@@ -778,6 +1012,9 @@ def main():
         print(f"{Colors.MAGENTA}{Colors.BOLD}SUMMARY:{Colors.RESET}")
         print(f"{Colors.GREEN}✓ Successful accounts: {Colors.WHITE}{creator.success_count}{Colors.RESET}")
         print(f"{Colors.RED}✗ Failed accounts: {Colors.WHITE}{creator.fail_count}{Colors.RESET}")
+        if proxy_manager:
+            print(f"{Colors.CYAN}✓ Working proxies: {Colors.WHITE}{len(proxy_manager.working_proxies)}{Colors.RESET}")
+            print(f"{Colors.RED}✗ Failed proxies: {Colors.WHITE}{len(proxy_manager.failed_proxies)}{Colors.RESET}")
         print("=" * 70)
 
         if creator.success_count > 0 and save_to_file:
