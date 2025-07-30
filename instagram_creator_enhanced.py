@@ -53,7 +53,7 @@ def display_banner():
 ╠══════════════════════════════════════════════╣
 ║  {Colors.GREEN}➤ Author   : {Colors.WHITE}EK6Q{Colors.CYAN}                     ║
 ║  {Colors.GREEN}➤ Tool     : {Colors.WHITE}Instagram Creator + Bio + PFP{Colors.CYAN}   ║
-║  {Colors.GREEN}➤ Version  : {Colors.WHITE}4.0 - Proxy Edition{Colors.CYAN}           ║
+║  {Colors.GREEN}➤ Version  : {Colors.WHITE}5.0 - Anti-Detection{Colors.CYAN}           ║
 ╚══════════════════════════════════════════════╝{Colors.RESET}
 """
     print(banner)
@@ -96,15 +96,16 @@ class ProxyManager:
         """Parse proxy string and return proxy dict"""
         try:
             # Remove protocol if present
+            original_string = proxy_string
             proxy_string = proxy_string.replace('http://', '').replace('https://', '').replace('socks4://', '').replace('socks5://', '')
             
             # Determine proxy type from original string
             proxy_type = 'http'
-            if 'socks4://' in proxy_string:
+            if 'socks4://' in original_string:
                 proxy_type = 'socks4'
-            elif 'socks5://' in proxy_string:
+            elif 'socks5://' in original_string:
                 proxy_type = 'socks5'
-            elif 'https://' in proxy_string:
+            elif 'https://' in original_string:
                 proxy_type = 'https'
             
             # Parse different formats
@@ -168,7 +169,7 @@ class ProxyManager:
                 'https': proxy_url
             }
     
-    def test_proxy(self, proxy, timeout=10):
+    def test_proxy(self, proxy, timeout=15):
         """Test if proxy is working"""
         try:
             proxy_dict = self.get_proxy_dict(proxy)
@@ -234,6 +235,19 @@ class ProxyManager:
 def generate_random_string(length):
     return ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(length))
 
+def generate_realistic_user_agent():
+    """Generate realistic user agents with proper browser versions"""
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+    ]
+    return random.choice(user_agents)
+
 def generate_user_agent():
     mobile_agents = [
         "Instagram 237.0.0.14.102 Android (33/13; 300dpi; 720x1467; samsung; SM-A127F; a12s; exynos850; en_GB; 373310554)",
@@ -243,13 +257,7 @@ def generate_user_agent():
     return random.choice(mobile_agents)
 
 def generate_web_user_agent():
-    web_agents = [
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 243.0.0.12.111",
-        "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
-        "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
-    ]
-    return random.choice(web_agents)
+    return generate_realistic_user_agent()
 
 def generate_random_bio():
     bios = [
@@ -267,7 +275,12 @@ def generate_random_bio():
         "Adventure awaits 🗺️",
         "Smile more, worry less 😊",
         "Be yourself, everyone else is taken 💯",
-        "Life's too short to be ordinary 🚀"
+        "Life's too short to be ordinary 🚀",
+        "Coffee lover ☕",
+        "Wanderlust soul 🌍",
+        "Music is life 🎵",
+        "Fitness enthusiast 💪",
+        "Foodie adventures 🍕"
     ]
     return random.choice(bios)
 
@@ -315,7 +328,7 @@ def get_temp_email():
         logger.error(f"Error creating temporary email: {e}")
         return None, None
 
-def poll_for_verification_code(sid_token, max_retries=20, delay=5):
+def poll_for_verification_code(sid_token, max_retries=25, delay=6):
     base_url = "https://api.guerrillamail.com/ajax.php"
 
     print(f"\n{Colors.CYAN}[*] Waiting for verification code from Instagram...{Colors.RESET}")
@@ -325,7 +338,7 @@ def poll_for_verification_code(sid_token, max_retries=20, delay=5):
         try:
             pbar.update(1)
 
-            mailbox_resp = requests.get(f"{base_url}?f=get_email_list&offset=0&sid_token={sid_token}", timeout=10)
+            mailbox_resp = requests.get(f"{base_url}?f=get_email_list&offset=0&sid_token={sid_token}", timeout=15)
             if mailbox_resp.status_code != 200:
                 logger.warning(f"Failed to fetch messages. Response code: {mailbox_resp.status_code}")
                 time.sleep(delay)
@@ -340,7 +353,7 @@ def poll_for_verification_code(sid_token, max_retries=20, delay=5):
                 if "Instagram" in subject or "instagram" in mail_from.lower():
                     mail_id = msg.get("mail_id")
 
-                    detail_resp = requests.get(f"{base_url}?f=fetch_email&sid_token={sid_token}&email_id={mail_id}", timeout=10)
+                    detail_resp = requests.get(f"{base_url}?f=fetch_email&sid_token={sid_token}&email_id={mail_id}", timeout=15)
                     if detail_resp.status_code != 200:
                         continue
 
@@ -366,7 +379,9 @@ def poll_for_verification_code(sid_token, max_retries=20, delay=5):
 
 def generate_random_name():
     first_names = ["أحمد", "محمد", "سارة", "فاطمة", "نور", "علي", "عمر", "مريم", "حسن", "ليلى",
-                   "Alex", "Emma", "Noah", "Sophia", "Liam", "Olivia", "John", "Zoe", "Ryan", "Lily"]
+                   "Alex", "Emma", "Noah", "Sophia", "Liam", "Olivia", "John", "Zoe", "Ryan", "Lily",
+                   "James", "Isabella", "William", "Charlotte", "Benjamin", "Amelia", "Lucas", "Mia",
+                   "Henry", "Harper", "Alexander", "Evelyn", "Mason", "Abigail", "Michael", "Emily"]
     return random.choice(first_names)
 
 def generate_random_birthday():
@@ -376,10 +391,18 @@ def generate_random_birthday():
     day = random.randint(1, 28)
     return day, month, year
 
+def human_delay(min_seconds=2, max_seconds=8):
+    """Add human-like delay between actions"""
+    delay = random.uniform(min_seconds, max_seconds)
+    time.sleep(delay)
+
 def get_csrf_token(session):
     """Get fresh CSRF token from Instagram"""
     try:
-        response = session.get("https://www.instagram.com/accounts/signup/email/", timeout=15)
+        # Add human-like delay before getting token
+        human_delay(1, 3)
+        
+        response = session.get("https://www.instagram.com/accounts/signup/email/", timeout=20)
         csrf_match = re.search(r'"csrf_token":"([^"]+)"', response.text)
         if csrf_match:
             return csrf_match.group(1)
@@ -394,14 +417,38 @@ def get_csrf_token(session):
         logger.error(f"Error getting CSRF token: {e}")
         return None
 
+def warm_up_session(session):
+    """Warm up session by visiting Instagram pages like a real user"""
+    try:
+        print(f"{Colors.YELLOW}[*] Warming up session...{Colors.RESET}")
+        
+        # Visit Instagram homepage
+        session.get("https://www.instagram.com/", timeout=20)
+        human_delay(2, 4)
+        
+        # Visit login page
+        session.get("https://www.instagram.com/accounts/login/", timeout=20)
+        human_delay(1, 3)
+        
+        # Visit signup page
+        session.get("https://www.instagram.com/accounts/signup/", timeout=20)
+        human_delay(2, 5)
+        
+        print(f"{Colors.GREEN}[+] Session warmed up successfully{Colors.RESET}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error warming up session: {e}")
+        return False
+
 def create_session_with_proxy(proxy_manager):
-    """Create a requests session with proxy configuration"""
+    """Create a requests session with proxy configuration and realistic settings"""
     session = requests.Session()
     
     # Configure retry strategy
     retry_strategy = Retry(
-        total=3,
-        backoff_factor=1,
+        total=5,
+        backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -423,6 +470,9 @@ def create_session_with_proxy(proxy_manager):
     
     # Disable SSL verification for proxy connections
     session.verify = False
+    
+    # Set realistic timeout
+    session.timeout = 30
     
     return session
 
@@ -501,6 +551,9 @@ class InstagramAccountCreator:
             if upload_response.status_code not in [200, 201]:
                 print(f"{Colors.RED}[!] Failed to upload image. Status: {upload_response.status_code}{Colors.RESET}")
                 return False
+
+            # Wait before setting profile picture
+            human_delay(3, 6)
 
             # Now set it as profile picture
             change_pic_url = "https://b.i.instagram.com/api/v1/accounts/change_profile_picture/"
@@ -643,15 +696,24 @@ class InstagramAccountCreator:
         # Create a session with proxy
         st4_session = create_session_with_proxy(self.proxy_manager)
         
-        # Set initial cookies and headers
+        # Set realistic headers
         st4_session.headers.update({
             'User-Agent': st4_user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
         })
+
+        # Warm up session first
+        if not warm_up_session(st4_session):
+            print(f"{Colors.YELLOW}[*] Session warm-up failed, continuing anyway...{Colors.RESET}")
 
         email, sid_token = get_temp_email()
         if not email or not sid_token:
@@ -670,40 +732,49 @@ class InstagramAccountCreator:
             
         print(f"{Colors.GREEN}[+] CSRF token obtained{Colors.RESET}")
 
+        # Add delay before email check
+        human_delay(3, 7)
+
         print(f"{Colors.YELLOW}[*] Checking email availability...{Colors.RESET}")
         url = "https://www.instagram.com/api/v1/web/accounts/check_email/"
         payload = {
             'email': email,
         }
+        
+        # Generate more realistic headers
+        ajax_id = str(random.randint(1000000000, 9999999999))
+        session_id = f"{generate_random_string(6)}:{generate_random_string(6)}:{generate_random_string(6)}"
+        
         headers = {
             'User-Agent': st4_user_agent,
-            'sec-ch-ua': "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\"",
-            'x-ig-www-claim': "0",
-            'x-web-session-id': f"{generate_random_string(6)}:{generate_random_string(6)}:{generate_random_string(6)}",
-            'sec-ch-ua-platform-version': "\"14.0.0\"",
-            'x-requested-with': "XMLHttpRequest",
-            'sec-ch-ua-full-version-list': "\"Not A(Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"132.0.6961.0\"",
-            'sec-ch-prefers-color-scheme': "dark",
-            'x-csrftoken': csrf_token,
-            'sec-ch-ua-platform': "\"Android\"",
-            'x-ig-app-id': "1217981644879628",
-            'sec-ch-ua-model': "\"RMX3941\"",
-            'sec-ch-ua-mobile': "?1",
-            'x-instagram-ajax': str(random.randint(1000000000, 9999999999)),
-            'x-asbd-id': "359341",
-            'origin': "https://www.instagram.com",
-            'sec-fetch-site': "same-origin",
-            'sec-fetch-mode': "cors",
-            'sec-fetch-dest': "empty",
-            'referer': "https://www.instagram.com/accounts/signup/email/",
-            'accept-language': "en",
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrf_token,
+            'X-IG-App-ID': '1217981644879628',
+            'X-IG-WWW-Claim': '0',
+            'X-Instagram-AJAX': ajax_id,
+            'X-ASBD-ID': '359341',
+            'Origin': 'https://www.instagram.com',
+            'Referer': 'https://www.instagram.com/accounts/signup/email/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
         }
 
         try:
-            response = st4_session.post(url, data=payload, headers=headers).text
+            response = st4_session.post(url, data=payload, headers=headers, timeout=25).text
             if '"available":true' not in response:
                 print(f"{Colors.RED}[!] Email not available{Colors.RESET}")
                 logger.error(f"Email not available: {response}")
+                
+                # Check if it's a rate limit issue
+                if "feedback_required" in response or "spam" in response:
+                    print(f"{Colors.YELLOW}[*] Rate limited, waiting longer before retry...{Colors.RESET}")
+                    time.sleep(random.randint(30, 60))
+                
                 self.fail_count += 1
                 return False
 
@@ -715,6 +786,9 @@ class InstagramAccountCreator:
             self.fail_count += 1
             return False
 
+        # Add delay before sending verification email
+        human_delay(4, 8)
+
         print(f"{Colors.YELLOW}[*] Sending verification email...{Colors.RESET}")
         url = "https://www.instagram.com/api/v1/accounts/send_verify_email/"
         payload = {
@@ -723,7 +797,7 @@ class InstagramAccountCreator:
         }
 
         try:
-            response = st4_session.post(url, data=payload, headers=headers).text
+            response = st4_session.post(url, data=payload, headers=headers, timeout=25).text
             if '"email_sent":true' not in response:
                 print(f"{Colors.RED}[!] Failed to send verification email{Colors.RESET}")
                 logger.error(f"Failed to send verification email: {response}")
@@ -748,6 +822,9 @@ class InstagramAccountCreator:
         print(f"{Colors.GREEN}[+] Received verification code: {Colors.CYAN}{st4_code}{Colors.RESET}")
         logger.info(f"Received verification code: {st4_code}")
 
+        # Add delay before validating code
+        human_delay(2, 5)
+
         print(f"{Colors.YELLOW}[*] Validating confirmation code...{Colors.RESET}")
         url = "https://www.instagram.com/api/v1/accounts/check_confirmation_code/"
         payload = {
@@ -757,7 +834,7 @@ class InstagramAccountCreator:
         }
 
         try:
-            response = st4_session.post(url, data=payload, headers=headers)
+            response = st4_session.post(url, data=payload, headers=headers, timeout=25)
             try:
                 st4_newCode = response.json()['signup_code']
                 print(f"{Colors.GREEN}[+] Confirmation code validated successfully{Colors.RESET}")
@@ -779,6 +856,9 @@ class InstagramAccountCreator:
         st4_first_name = generate_random_name()
         st4_day, st4_month, st4_year = generate_random_birthday()
 
+        # Add delay before account creation
+        human_delay(5, 10)
+
         print(f"{Colors.YELLOW}[*] Creating Instagram account...{Colors.RESET}")
         url = "https://www.instagram.com/api/v1/web/accounts/web_create_ajax/"
         payload = {
@@ -795,32 +875,9 @@ class InstagramAccountCreator:
             'tos_version': "row",
             'force_sign_up_code': st4_newCode,
         }
-        headers = {
-            'User-Agent': st4_user_agent,
-            'sec-ch-ua': "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\"",
-            'x-ig-www-claim': "0",
-            'x-web-session-id': f"{generate_random_string(6)}:{generate_random_string(6)}:{generate_random_string(6)}",
-            'sec-ch-ua-platform-version': "\"14.0.0\"",
-            'x-requested-with': "XMLHttpRequest",
-            'sec-ch-ua-full-version-list': "\"Not A(Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"132.0.6961.0\"",
-            'sec-ch-prefers-color-scheme': "dark",
-            'x-csrftoken': csrf_token,
-            'sec-ch-ua-platform': "\"Android\"",
-            'x-ig-app-id': "1217981644879628",
-            'sec-ch-ua-model': "\"RMX3941\"",
-            'sec-ch-ua-mobile': "?1",
-            'x-instagram-ajax': str(random.randint(1000000000, 9999999999)),
-            'x-asbd-id': "359341",
-            'origin': "https://www.instagram.com",
-            'sec-fetch-site': "same-origin",
-            'sec-fetch-mode': "cors",
-            'sec-fetch-dest': "empty",
-            'referer': "https://www.instagram.com/accounts/signup/username/",
-            'accept-language': "en",
-        }
 
         try:
-            response = st4_session.post(url, data=payload, headers=headers)
+            response = st4_session.post(url, data=payload, headers=headers, timeout=30)
 
             if '"account_created":true' not in response.text:
                 print(f"{Colors.RED}[!] Account creation failed{Colors.RESET}")
@@ -852,8 +909,8 @@ class InstagramAccountCreator:
             print(f"\n{Colors.GREEN}{Colors.BOLD}✅ ACCOUNT CREATED SUCCESSFULLY! ✅{Colors.RESET}\n")
 
             # Wait longer before setting bio and profile picture to ensure session is stable
-            print(f"{Colors.YELLOW}[*] Waiting 10 seconds for account initialization...{Colors.RESET}")
-            time.sleep(10)
+            print(f"{Colors.YELLOW}[*] Waiting 15 seconds for account initialization...{Colors.RESET}")
+            time.sleep(15)
 
             # Generate random bio
             bio_text = generate_random_bio()
@@ -861,8 +918,8 @@ class InstagramAccountCreator:
             # Set biography using the same session
             bio_success = self.set_biography(st4_session, ST4_SESSION, user_id, device_id, uuid_val, bio_text)
 
-            # Wait a bit before uploading profile picture
-            time.sleep(5)
+            # Wait before uploading profile picture
+            human_delay(8, 15)
 
             # Upload profile picture using the same session
             pic_success = self.upload_profile_picture(st4_session, ST4_SESSION, user_id, device_id, uuid_val)
@@ -925,10 +982,10 @@ def get_user_input():
         print(f"\n{Colors.YELLOW}{Colors.BOLD}How many Instagram accounts do you want to create?{Colors.RESET}")
         while True:
             try:
-                count = int(input(f"{Colors.CYAN}Enter number (1-100): {Colors.RESET}"))
-                if 1 <= count <= 100:
+                count = int(input(f"{Colors.CYAN}Enter number (1-50): {Colors.RESET}"))
+                if 1 <= count <= 50:
                     break
-                print(f"{Colors.RED}Please enter a number between 1 and 100.{Colors.RESET}")
+                print(f"{Colors.RED}Please enter a number between 1 and 50.{Colors.RESET}")
             except ValueError:
                 print(f"{Colors.RED}Please enter a valid number.{Colors.RESET}")
 
@@ -954,10 +1011,10 @@ def get_user_input():
         print(f"\n{Colors.YELLOW}{Colors.BOLD}Delay between account creations (seconds):{Colors.RESET}")
         while True:
             try:
-                delay = int(input(f"{Colors.CYAN}Enter delay (10-120): {Colors.RESET}"))
-                if 10 <= delay <= 120:
+                delay = int(input(f"{Colors.CYAN}Enter delay (30-300): {Colors.RESET}"))
+                if 30 <= delay <= 300:
                     break
-                print(f"{Colors.RED}Please enter a number between 10 and 120.{Colors.RESET}")
+                print(f"{Colors.RED}Please enter a number between 30 and 300.{Colors.RESET}")
             except ValueError:
                 print(f"{Colors.RED}Please enter a valid number.{Colors.RESET}")
 
@@ -982,13 +1039,14 @@ def main():
         count, delay, save_to_file, proxy_manager = get_user_input()
 
         print("\n" + "=" * 70)
-        print(f"{Colors.GREEN}Starting Enhanced Instagram Account Creator v4.0{Colors.RESET}")
+        print(f"{Colors.GREEN}Starting Enhanced Instagram Account Creator v5.0{Colors.RESET}")
         print(f"{Colors.CYAN}• Creating {Colors.WHITE}{count}{Colors.CYAN} account(s) with bio and profile picture{Colors.RESET}")
         print(f"{Colors.CYAN}• Delay between accounts: {Colors.WHITE}{delay}{Colors.CYAN} seconds{Colors.RESET}")
         print(f"{Colors.CYAN}• Save to file: {Colors.WHITE}{'Yes' if save_to_file else 'No'}{Colors.RESET}")
         print(f"{Colors.CYAN}• Using proxies: {Colors.WHITE}{'Yes' if proxy_manager else 'No'}{Colors.RESET}")
         if proxy_manager:
             print(f"{Colors.CYAN}• Total proxies loaded: {Colors.WHITE}{len(proxy_manager.proxies)}{Colors.RESET}")
+        print(f"{Colors.CYAN}• Anti-detection: {Colors.WHITE}Enabled{Colors.RESET}")
         print("=" * 70)
 
         creator = InstagramAccountCreator(save_to_file=save_to_file, proxy_manager=proxy_manager)
